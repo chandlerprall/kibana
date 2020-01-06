@@ -158,7 +158,7 @@ describe('deserialize', () => {
           "type": "string",
         },
         Object {
-          "color": "#CE0060",
+          "color": "#D36086",
           "hopSize": 5,
           "icon": Object {
             "class": "fa-folder-open-o",
