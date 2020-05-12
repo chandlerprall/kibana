@@ -225,6 +225,13 @@ export class Execution<
     }
   }
 
+  // this function would take "too much work" to convert for this proof-of-concept
+  // instead of being able to handle both sync & async results, I've removed
+  // the async handling of resolvedArgsResult and invokeFunctionResult
+  // easy enough to test everything else works with async values though,
+  // * make invokeChain `async` again
+  // * comment-in the 2 `await` lines
+  // * done! just note that all sub-expressions become async again
   invokeChain(chainArr: ExpressionAstFunction[], input: unknown): Promise<any> {
     if (!chainArr.length) return input;
 

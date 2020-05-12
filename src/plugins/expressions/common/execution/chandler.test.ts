@@ -83,20 +83,25 @@ function filterrows(): ExpressionFunctionDefinition<
         });
       });
 
-      const validRows = input.rows.filter((row, i) => checks[i]);
-      return {
-        ...input,
-        rows: validRows,
-      } as Datatable;
-      // return Promise.all(checks)
-      //   .then(results => input.rows.filter((row, i) => results[i]))
-      //   .then(
-      //     rows =>
-      //       ({
-      //         ...input,
-      //         rows,
-      //       } as Datatable)
-      //   );
+      const hasAsyncChecks = checks.some(check => check instanceof Promise);
+
+      if (hasAsyncChecks) {
+        return Promise.all(checks)
+          .then(results => input.rows.filter((row, i) => results[i]))
+          .then(
+            rows =>
+              ({
+                ...input,
+                rows,
+              } as Datatable)
+          );
+      } else {
+        const validRows = input.rows.filter((row, i) => checks[i]);
+        return {
+          ...input,
+          rows: validRows,
+        } as Datatable;
+      }
     },
   };
 }
