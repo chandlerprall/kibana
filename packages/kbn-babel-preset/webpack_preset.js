@@ -28,6 +28,13 @@ module.exports = () => {
           // Please read the explanation for this
           // in node_preset.js
           corejs: '3.2.1',
+          // exclude: [
+          //   "@babel/plugin-transform-regenerator",
+          //   "@babel/transform-regenerator",
+          //
+          //   "@babel/plugin-transform-async-to-generator",
+          //   "@babel/transform-async-to-generator",
+          // ]
         },
       ],
       require('./common_preset'),

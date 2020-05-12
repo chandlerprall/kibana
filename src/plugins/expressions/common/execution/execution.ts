@@ -105,8 +105,12 @@ export class Execution<
   /**
    * Races a given promise against the "abort" event of `abortController`.
    */
-  private race<T>(promise: Promise<T>): Promise<T> {
-    return Promise.race<T>([this.abortRejection, promise]);
+  private race<T>(promise: Promise<T> | T): Promise<T> | T {
+    if (promise instanceof Promise) {
+      return Promise.race<T>([this.abortRejection, promise]);
+    } else {
+      return promise;
+    }
   }
 
   /**
@@ -193,10 +197,15 @@ export class Execution<
     const { resolve, reject } = this.firstResultFuture;
     const chainPromise = this.invokeChain(this.state.get().ast.chain, input);
 
-    this.race(chainPromise).then(resolve, error => {
-      if (this.abortController.signal.aborted) resolve(createAbortErrorValue());
-      else reject(error);
-    });
+    const raceResult = this.race(chainPromise);
+    if (raceResult instanceof Promise) {
+      raceResult.then(resolve, error => {
+        if (this.abortController.signal.aborted) resolve(createAbortErrorValue());
+        else reject(error);
+      });
+    } else {
+      resolve(raceResult);
+    }
 
     this.firstResultFuture.promise.then(
       result => {
@@ -225,10 +234,22 @@ export class Execution<
       try {
         // `resolveArgs` returns an object because the arguments themselves might
         // actually have a `then` function which would be treated as a `Promise`.
-        const { resolvedArgs } = await this.race(this.resolveArgs(fn, input, fnArgs));
-        args = resolvedArgs;
+        const resolvedArgsResult = this.resolveArgs(fn, input, fnArgs);
+        let args;
+        if (resolvedArgsResult instanceof Promise) {
+          args = (await this.race(resolvedArgsResult)).resolvedArgs;
+        } else {
+          args = resolvedArgsResult.resolvedArgs;
+        }
+
         timeStart = this.params.debug ? now() : 0;
-        const output = await this.race(this.invokeFunction(fn, input, resolvedArgs));
+        const invokeFunctionResult = this.invokeFunction(fn, input, args);
+        let output;
+        if (invokeFunctionResult instanceof Promise) {
+          output = await this.race(invokeFunctionResult);
+        } else {
+          output = invokeFunctionResult;
+        }
 
         if (this.params.debug) {
           const timeEnd: number = now();
@@ -236,7 +257,7 @@ export class Execution<
             success: true,
             fn,
             input,
-            args: resolvedArgs,
+            args,
             output,
             duration: timeEnd - timeStart,
           };
@@ -268,36 +289,45 @@ export class Execution<
     return input;
   }
 
-  async invokeFunction(
+  invokeFunction(
     fn: ExpressionFunction,
     input: unknown,
     args: Record<string, unknown>
-  ): Promise<any> {
+  ): any {
     const normalizedInput = this.cast(input, fn.inputTypes);
-    const output = await this.race(fn.fn(normalizedInput, args, this.context));
+    const outputResult = fn.fn(normalizedInput, args, this.context);
 
-    // Validate that the function returned the type it said it would.
-    // This isn't required, but it keeps function developers honest.
-    const returnType = getType(output);
-    const expectedType = fn.type;
-    if (expectedType && returnType !== expectedType) {
-      throw new Error(
-        `Function '${fn.name}' should return '${expectedType}',` +
+    const self = this;
+    function processOutput(output: any) {
+      // Validate that the function returned the type it said it would.
+      // This isn't required, but it keeps function developers honest.
+      const returnType = getType(output);
+      const expectedType = fn.type;
+      if (expectedType && returnType !== expectedType) {
+        throw new Error(
+          `Function '${fn.name}' should return '${expectedType}',` +
           ` actually returned '${returnType}'`
-      );
-    }
-
-    // Validate the function output against the type definition's validate function.
-    const type = this.context.types[fn.type];
-    if (type && type.validate) {
-      try {
-        type.validate(output);
-      } catch (e) {
-        throw new Error(`Output of '${fn.name}' is not a valid type '${fn.type}': ${e}`);
+        );
       }
+
+      // Validate the function output against the type definition's validate function.
+      const type = self.context.types[fn.type];
+      if (type && type.validate) {
+        try {
+          type.validate(output);
+        } catch (e) {
+          throw new Error(`Output of '${fn.name}' is not a valid type '${fn.type}': ${e}`);
+        }
+      }
+
+      return output;
     }
 
-    return output;
+    if (outputResult instanceof Promise) {
+      return this.race(outputResult).then(processOutput);
+    } else {
+      return processOutput(outputResult);
+    }
   }
 
   public cast(value: any, toTypeNames?: string[]) {
@@ -379,15 +409,26 @@ export class Execution<
 
     // Create the functions to resolve the argument ASTs into values
     // These are what are passed to the actual functions if you opt out of resolving
+    let hasAsyncArg = false;
     const resolveArgFns = mapValues(argAstsWithDefaults, (asts, argName) => {
       return asts.map((item: ExpressionAstExpression) => {
-        return async (subInput = input) => {
-          const output = await this.params.executor.interpret(item, subInput, {
+        return (subInput = input) => {
+          const outputResult = this.params.executor.interpret(item, subInput, {
             debug: this.params.debug,
           });
-          if (isExpressionValueError(output)) throw output.error;
-          const casted = this.cast(output, argDefs[argName as any].types);
-          return casted;
+
+          const processOutput = (output: unknown) => {
+            if (isExpressionValueError(output)) throw output.error;
+            const casted = this.cast(output, argDefs[argName as any].types);
+            return casted;
+          }
+
+          if (outputResult instanceof Promise) {
+            hasAsyncArg = true;
+            return outputResult.then(processOutput);
+          } else {
+            return processOutput(outputResult);
+          }
         };
       });
     });
@@ -395,13 +436,14 @@ export class Execution<
     const argNames = keys(resolveArgFns);
 
     // Actually resolve unless the argument definition says not to
-    const resolvedArgValues = await Promise.all(
-      argNames.map(argName => {
-        const interpretFns = resolveArgFns[argName];
-        if (!argDefs[argName].resolve) return interpretFns;
-        return Promise.all(interpretFns.map((fn: any) => fn()));
-      })
-    );
+    const pendingResolvedArgValues = argNames.map(argName => {
+      const interpretFns = resolveArgFns[argName];
+      if (!argDefs[argName].resolve) return interpretFns;
+
+      const wrappedFns = interpretFns.map((fn: any) => fn());
+      return hasAsyncArg ? Promise.all(wrappedFns) : wrappedFns;
+    });
+    const resolvedArgValues = hasAsyncArg ? await Promise.all(pendingResolvedArgValues) : pendingResolvedArgValues;
 
     const resolvedMultiArgs = zipObject(argNames, resolvedArgValues);
 
