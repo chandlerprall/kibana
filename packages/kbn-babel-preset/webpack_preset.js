@@ -28,6 +28,8 @@ module.exports = () => {
           // Please read the explanation for this
           // in node_preset.js
           corejs: '3.2.1',
+          // enabling this exclude is useful for testing "raw" run times in the browser
+          // as it disables the regenerator runtime, allowing native async/await
           // exclude: [
           //   "@babel/plugin-transform-regenerator",
           //   "@babel/transform-regenerator",
