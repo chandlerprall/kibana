@@ -100,6 +100,7 @@ export class Execution<
   /**
    * Promise that rejects if/when abort controller sends "abort" signal.
    */
+  // Accounts for ~15% of the remaining runtime
   private readonly abortRejection = toPromise(this.abortController.signal, true);
 
   /**
@@ -207,6 +208,7 @@ export class Execution<
       resolve(raceResult);
     }
 
+    // Accounts for ~25% of the remaining runtime
     this.firstResultFuture.promise.then(
       result => {
         this.state.transitions.setResult(result);

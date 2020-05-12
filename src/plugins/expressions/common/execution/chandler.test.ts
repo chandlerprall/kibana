@@ -211,14 +211,12 @@ describe('Execution', () => {
     executor.registerFunction(eq);
     executor.registerFunction(any);
 
-    debugger;
     const start = Date.now();
     const result = await executor.run(
       'dummydata | filterrows {getCell "char" | any {eq "A"} {eq "D"} {eq "C"}}',
       null
     );
     const end = Date.now();
-    debugger;
 
     console.log('found', result.rows.length);
     console.log(end-start);
