@@ -215,9 +215,15 @@ export class Execution<
         this.state.transitions.setError(error);
       }
     );
+
+    if (raceResult instanceof Promise) {
+      return this.result;
+    } else {
+      return raceResult;
+    }
   }
 
-  async invokeChain(chainArr: ExpressionAstFunction[], input: unknown): Promise<any> {
+  invokeChain(chainArr: ExpressionAstFunction[], input: unknown): Promise<any> {
     if (!chainArr.length) return input;
 
     for (const link of chainArr) {
@@ -237,7 +243,9 @@ export class Execution<
         const resolvedArgsResult = this.resolveArgs(fn, input, fnArgs);
         let args;
         if (resolvedArgsResult instanceof Promise) {
-          args = (await this.race(resolvedArgsResult)).resolvedArgs;
+          // args = (await this.race(resolvedArgsResult)).resolvedArgs;
+          console.log('1');
+          throw '1';
         } else {
           args = resolvedArgsResult.resolvedArgs;
         }
@@ -246,7 +254,9 @@ export class Execution<
         const invokeFunctionResult = this.invokeFunction(fn, input, args);
         let output;
         if (invokeFunctionResult instanceof Promise) {
-          output = await this.race(invokeFunctionResult);
+          // output = await this.race(invokeFunctionResult);
+          console.log('2');
+          throw '2';
         } else {
           output = invokeFunctionResult;
         }
@@ -356,7 +366,7 @@ export class Execution<
   }
 
   // Processes the multi-valued AST argument values into arguments that can be passed to the function
-  async resolveArgs(fnDef: ExpressionFunction, input: unknown, argAsts: any): Promise<any> {
+  resolveArgs(fnDef: ExpressionFunction, input: unknown, argAsts: any): Promise<any> | any {
     const argDefs = fnDef.args;
 
     // Use the non-alias name from the argument definition
@@ -409,7 +419,6 @@ export class Execution<
 
     // Create the functions to resolve the argument ASTs into values
     // These are what are passed to the actual functions if you opt out of resolving
-    let hasAsyncArg = false;
     const resolveArgFns = mapValues(argAstsWithDefaults, (asts, argName) => {
       return asts.map((item: ExpressionAstExpression) => {
         return (subInput = input) => {
@@ -424,7 +433,6 @@ export class Execution<
           }
 
           if (outputResult instanceof Promise) {
-            hasAsyncArg = true;
             return outputResult.then(processOutput);
           } else {
             return processOutput(outputResult);
@@ -441,20 +449,29 @@ export class Execution<
       if (!argDefs[argName].resolve) return interpretFns;
 
       const wrappedFns = interpretFns.map((fn: any) => fn());
+      const hasAsyncArg = wrappedFns.some((fn: any) => fn instanceof Promise);
       return hasAsyncArg ? Promise.all(wrappedFns) : wrappedFns;
     });
-    const resolvedArgValues = hasAsyncArg ? await Promise.all(pendingResolvedArgValues) : pendingResolvedArgValues;
 
-    const resolvedMultiArgs = zipObject(argNames, resolvedArgValues);
+    function processResolvedArgValues(resolvedArgValues: any[]) {
+      const resolvedMultiArgs = zipObject(argNames, resolvedArgValues);
 
-    // Just return the last unless the argument definition allows multiple
-    const resolvedArgs = mapValues(resolvedMultiArgs, (argValues, argName) => {
-      if (argDefs[argName as any].multi) return argValues;
-      return last(argValues as any);
-    });
+      // Just return the last unless the argument definition allows multiple
+      const resolvedArgs = mapValues(resolvedMultiArgs, (argValues, argName) => {
+        if (argDefs[argName as any].multi) return argValues;
+        return last(argValues as any);
+      });
 
-    // Return an object here because the arguments themselves might actually have a 'then'
-    // function which would be treated as a promise
-    return { resolvedArgs };
+      // Return an object here because the arguments themselves might actually have a 'then'
+      // function which would be treated as a promise
+      return { resolvedArgs };
+    }
+
+    const hasAsyncValue = pendingResolvedArgValues.some((value: any) => value instanceof Promise);
+    if (hasAsyncValue) {
+      return Promise.all(pendingResolvedArgValues).then(processResolvedArgValues)
+    } else {
+      return processResolvedArgValues(pendingResolvedArgValues);
+    }
   }
 }

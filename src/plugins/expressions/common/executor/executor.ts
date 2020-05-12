@@ -178,8 +178,8 @@ export class Executor<Context extends Record<string, unknown> = Record<string, u
     options?: ExpressionExecOptions
   ): Promise<unknown> | unknown {
     const execution = this.createExecution(ast, undefined, options);
-    execution.start(input);
-    return execution.result;
+    const executionResult = execution.start(input);
+    return executionResult instanceof Promise ? execution.result : executionResult;
   }
 
   /**

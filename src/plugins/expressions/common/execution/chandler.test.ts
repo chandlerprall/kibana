@@ -17,8 +17,6 @@
  * under the License.
  */
 
-import { Execution } from './execution';
-import { parseExpression } from '../ast';
 import { createUnitTestExecutor } from '../test_helpers';
 import { Datatable, ExpressionFunctionDefinition } from '../../public';
 import { getFunctionErrors, getFunctionHelp } from '../../../../../x-pack/plugins/canvas/i18n/functions';
@@ -28,21 +26,6 @@ beforeAll(() => {
     (global as any).performance = { now: Date.now };
   }
 });
-
-const createExecution = (
-  expression: string = 'foo bar=123',
-  context: Record<string, unknown> = {},
-  debug: boolean = false
-) => {
-  const executor = createUnitTestExecutor();
-  const execution = new Execution({
-    executor,
-    ast: parseExpression(expression),
-    context,
-    debug,
-  });
-  return execution;
-};
 
 const dummydata: ExpressionFunctionDefinition<'dummydata', any, {}, any> = {
   name: 'dummydata',
@@ -100,17 +83,20 @@ function filterrows(): ExpressionFunctionDefinition<
         });
       });
 
-      return Promise.all(checks)
-        .then(results => input.rows.filter((row, i) => results[i]))
-      // return Promise.all([])
-      //   .then(results => input.rows.filter((row, i) => false))
-        .then(
-          rows =>
-            ({
-              ...input,
-              rows,
-            } as Datatable)
-        );
+      const validRows = input.rows.filter((row, i) => checks[i]);
+      return {
+        ...input,
+        rows: validRows,
+      } as Datatable;
+      // return Promise.all(checks)
+      //   .then(results => input.rows.filter((row, i) => results[i]))
+      //   .then(
+      //     rows =>
+      //       ({
+      //         ...input,
+      //         rows,
+      //       } as Datatable)
+      //   );
     },
   };
 }
@@ -225,13 +211,14 @@ describe('Execution', () => {
     executor.registerFunction(eq);
     executor.registerFunction(any);
 
+    debugger;
     const start = Date.now();
     const result = await executor.run(
-      'dummydata | filterrows {getCell "char" | any {eq "A"} {eq "D"} {eq "C"}} ',
-      2
+      'dummydata | filterrows {getCell "char" | any {eq "A"} {eq "D"} {eq "C"}}',
+      null
     );
-
     const end = Date.now();
+    debugger;
 
     console.log('found', result.rows.length);
     console.log(end-start);
