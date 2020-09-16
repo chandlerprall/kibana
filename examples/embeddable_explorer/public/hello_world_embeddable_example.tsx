@@ -17,61 +17,141 @@
  * under the License.
  */
 
-import React from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
+  EuiErrorBoundary,
   EuiPageBody,
   EuiPageContent,
   EuiPageContentBody,
   EuiPageHeader,
   EuiPageHeaderSection,
-  EuiPanel,
-  EuiText,
   EuiTitle,
+  EuiMarkdownEditor,
+  EuiMarkdownContext,
+  getDefaultEuiMarkdownParsingPlugins,
+  getDefaultEuiMarkdownProcessingPlugins,
 } from '@elastic/eui';
+import * as MarkdownEmbeddable from './plugins/markdown_embeddable';
+import * as MarkdownSavedObjectEmbeddable from './plugins/markdown_savedobject_embeddable';
 import { EmbeddableRenderer } from '../../../src/plugins/embeddable/public';
-import {
-  HelloWorldEmbeddable,
-  HelloWorldEmbeddableFactory,
-} from '../../embeddable_examples/public';
+import { getSavedObjectFinder } from '../../../src/plugins/saved_objects/public';
 
-interface Props {
-  helloWorldEmbeddableFactory: HelloWorldEmbeddableFactory;
-}
+const exampleParsingList = getDefaultEuiMarkdownParsingPlugins();
+exampleParsingList.push(MarkdownEmbeddable.parser);
+exampleParsingList.push(MarkdownSavedObjectEmbeddable.parser);
 
-export function HelloWorldEmbeddableExample({ helloWorldEmbeddableFactory }: Props) {
+const exampleProcessingList = getDefaultEuiMarkdownProcessingPlugins();
+
+export function HelloWorldEmbeddableExample({ savedObjects, uiSettings, application, inspector, notifications, overlays, embeddableApi, getEmbeddableFactory, uiActions, helloWorldEmbeddableFactory }: any) {
+  const [value, setValue] = useState(`!{embeddable{"type":"HELLO_WORLD_EMBEDDABLE"}}
+
+!{embeddable{"type":"placeholder"}}
+
+
+
+
+# Check out this thing I found
+
+!{soe{"type":"map","savedObjectId":"5dd88580-1906-11e9-919b-ffe5949a18d2","viewMode":"edit","filters":[],"refreshConfig":{"value":0},"isLayerTOCOpen":false,"timeRange":{"from":"now-15d","to":"now"},"mapCenter":{"lat":0,"lon":0,"zoom":0},"openTOCDetails":[],"hiddenLayers":[],"title":"Lots of dots on a map"}}
+
+----
+
+**And check out this !{tooltip[interesting graph](which is totally made up)}!**
+
+
+
+!{soe{"type":"visualization","savedObjectId":"f8290060-4c88-11e8-b3d7-01146121b73d","viewMode":"edit","filters":[],"refreshConfig":{"value":0},"timeRange":{"from":"now-15d","to":"now"}}}`);
+  const [go, setGo] = useState(false);
+
+  useEffect(() => {
+    const EmbeddableMarkdownRenderer = ({ configuration }: any) => {
+      const { type, ...config } = configuration;
+      return (
+        <EuiErrorBoundary>
+          <EmbeddableRenderer factory={getEmbeddableFactory(type)} input={config} />
+        </EuiErrorBoundary>
+      );
+    };
+
+    const SavedObjectEmbeddableMarkdownRenderer = ({ position, configuration }: any) => {
+      const [embeddable, setEmbeddable] = useState(null);
+      const { type, savedObjectId, ...config } = configuration;
+      const { replaceNode } = useContext(EuiMarkdownContext);
+
+      const configString = `!{soe${JSON.stringify({ type, savedObjectId, ...config })}}`;
+
+      useEffect(() => {
+        const factory = getEmbeddableFactory(type as string);
+        if (factory) {
+          factory.createFromSavedObject(
+            savedObjectId,
+            config
+          ).then(embeddable => {
+            setEmbeddable(embeddable);
+
+            const inputObserver = embeddable.getInput$();
+
+            inputObserver.subscribe(input => {
+              const nextConfig = `!{soe${JSON.stringify({ type, savedObjectId, ...input })}}`;
+
+              if (configString !== nextConfig) {
+                replaceNode(position, nextConfig);
+              }
+            });
+
+            return () => inputObserver.unsubscribe();
+          });
+        }
+      }, [getEmbeddableFactory, type, replaceNode, position, configString]);
+      return (
+        <EuiErrorBoundary>
+          <div style={{height: '280px'}}>
+            {
+              embeddable && <embeddableApi.EmbeddablePanel
+                data-test-subj="embeddable-panel"
+                embeddable={embeddable}
+                getActions={uiActions.getTriggerCompatibleActions}
+                getEmbeddableFactory={embeddableApi.getEmbeddableFactory}
+                getAllEmbeddableFactories={embeddableApi.getEmbeddableFactories}
+                notifications={notifications}
+                overlays={overlays}
+                inspector={inspector}
+                application={application}
+                SavedObjectFinder={getSavedObjectFinder(savedObjects, uiSettings)}
+              />
+            }
+          </div>
+        </EuiErrorBoundary>
+      );
+    };
+
+    exampleProcessingList[1][1].components.embeddableDemoPlugin = EmbeddableMarkdownRenderer;
+    exampleProcessingList[1][1].components.savedObjectEmbeddableDemoPlugin = SavedObjectEmbeddableMarkdownRenderer;
+    setGo(true);
+  }, []);
+
   return (
     <EuiPageBody>
       <EuiPageHeader>
         <EuiPageHeaderSection>
           <EuiTitle size="l">
-            <h1>Hello world example</h1>
+            <h1>Embeddable Markdown Example</h1>
           </EuiTitle>
         </EuiPageHeaderSection>
       </EuiPageHeader>
       <EuiPageContent>
         <EuiPageContentBody>
-          <EuiText>
-            Here the embeddable is rendered without the factory. A developer may use this method if
-            they want to statically embed a single embeddable into their application or page. Also
-            `input` prop may be used to declaratively update current embeddable input
-          </EuiText>
-          <EuiPanel data-test-subj="helloWorldEmbeddablePanel" paddingSize="none" role="figure">
-            <EmbeddableRenderer embeddable={new HelloWorldEmbeddable({ id: 'hello' })} />
-          </EuiPanel>
-
-          <EuiText>
-            Here the embeddable is rendered using the factory. Internally it creates embeddable
-            using factory.create(). This method is used programatically when a container embeddable
-            attempts to initialize it&#39;s children embeddables. This method can be used when you
-            only have a access to a factory.
-          </EuiText>
-          <EuiPanel
-            data-test-subj="helloWorldEmbeddableFromFactory"
-            paddingSize="none"
-            role="figure"
-          >
-            <EmbeddableRenderer factory={helloWorldEmbeddableFactory} input={{ id: '1234' }} />
-          </EuiPanel>
+          {
+            go && <EuiMarkdownEditor
+              aria-label="markdown editor example"
+              height={800}
+              value={value}
+              onChange={setValue}
+              processingPluginList={exampleProcessingList}
+              parsingPluginList={exampleParsingList}
+              uiPlugins={[MarkdownEmbeddable.plugin, MarkdownSavedObjectEmbeddable.plugin]}
+            />
+          }
         </EuiPageContentBody>
       </EuiPageContent>
     </EuiPageBody>

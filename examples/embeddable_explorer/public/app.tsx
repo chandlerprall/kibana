@@ -90,6 +90,14 @@ const EmbeddableExplorerApp = ({
   navigateToApp,
   embeddableApi,
   embeddableExamples,
+  application,
+  uiActions,
+  inspector,
+  uiSettingsClient,
+  savedObject,
+  overlays,
+  uiActionsApi,
+  notifications,
 }: Props) => {
   const pages: PageDef[] = [
     {
@@ -97,6 +105,15 @@ const EmbeddableExplorerApp = ({
       id: 'helloWorldEmbeddableSection',
       component: (
         <HelloWorldEmbeddableExample
+          savedObjects={savedObject}
+          uiSettings={uiSettingsClient}
+          application={application}
+          inspector={inspector}
+          notifications={notifications}
+          overlays={overlays}
+          embeddableApi={embeddableApi}
+          getEmbeddableFactory={embeddableApi.getEmbeddableFactory}
+          uiActions={uiActions}
           helloWorldEmbeddableFactory={embeddableExamples.factories.getHelloWorldEmbeddableFactory()}
         />
       ),
